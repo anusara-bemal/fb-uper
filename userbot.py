@@ -103,38 +103,84 @@ def add_watermark_to_video(input_video, output_video, watermark_image):
         logging.error(f"Error adding watermark: {str(e)}")
         return False
 
-# Progress callback for upload
-async def callback(current, total, status_message, action="Uploading"):
-    """Update status message with progress percentage for uploads"""
-    percent = int(current * 100 / total)
-    # Update every 5% to avoid flooding
-    if percent % 5 == 0:
-        await status_message.edit(f'{action} progress: {percent}%')
+# Progress tracking variables
+last_progress_text = {}
 
-# Progress hook for yt-dlp download
-def download_progress_hook(d, status_message):
-    """Progress hook for yt-dlp to update download status"""
-    if d['status'] == 'downloading':
+async def callback(current, total, message):
+    """Callback function for upload progress."""
+    global last_progress_text
+    chat_id = message.chat_id
+
+    # Calculate percentage
+    percentage = current * 100 // total if total > 0 else 0
+    progress_bar = generate_progress_bar(percentage)
+    
+    # Format the progress message
+    text = f"📤 Uploading: {percentage}%\n{progress_bar}\n({format_size(current)}/{format_size(total)})"
+    
+    # Only update if the content changed to avoid MessageNotModifiedError
+    message_id = f"{chat_id}_{message.id}"
+    if message_id not in last_progress_text or last_progress_text[message_id] != text:
+        last_progress_text[message_id] = text
         try:
-            percent = d.get('_percent_str', '0%').strip()
-            # Convert "100.0%" to just "100%"
-            percent = percent.replace('.0', '')
-            elapsed = d.get('_elapsed_str', '00:00')
-            speed = d.get('_speed_str', '0 KiB/s')
-            eta = d.get('_eta_str', '00:00')
-            
-            if '_percent_str' in d and not percent.startswith('100'):
-                # Use asyncio.create_task to avoid blocking
-                asyncio.create_task(
-                    status_message.edit(
-                        f'⬇️ Downloading: {percent}\n'
-                        f'⏱️ Elapsed: {elapsed}\n'
-                        f'🚀 Speed: {speed}\n'
-                        f'⏳ ETA: {eta}'
-                    )
-                )
+            await message.edit(text)
         except Exception as e:
-            print(f"Error updating download progress: {e}")
+            if "MessageNotModifiedError" not in str(e):
+                print(f"Edit error: {str(e)}")
+
+def format_size(size_bytes):
+    """Format size in bytes to a human-readable format."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.2f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.2f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+def generate_progress_bar(percentage, length=20):
+    """Generate a progress bar based on percentage."""
+    completed = int(percentage * length / 100)
+    remaining = length - completed
+    return f"[{'■' * completed}{'□' * remaining}]"
+
+async def download_progress_hook(d, message):
+    """Hook for showing download progress."""
+    global last_progress_text
+    
+    if d['status'] == 'downloading':
+        downloaded = d.get('downloaded_bytes', 0)
+        total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+        
+        if total > 0:
+            percentage = downloaded * 100 // total
+            progress_bar = generate_progress_bar(percentage)
+            text = f"⬇️ Downloading: {percentage}%\n{progress_bar}\n({format_size(downloaded)}/{format_size(total)})"
+            
+            # Only update if the content changed to avoid MessageNotModifiedError
+            message_id = f"{message.chat_id}_{message.id}"
+            if message_id not in last_progress_text or last_progress_text[message_id] != text:
+                last_progress_text[message_id] = text
+                try:
+                    await message.edit(text)
+                except Exception as e:
+                    if "MessageNotModifiedError" not in str(e):
+                        print(f"Edit error: {str(e)}")
+    
+    elif d['status'] == 'finished':
+        try:
+            await message.edit('✅ Download completed! Processing...')
+        except Exception as e:
+            if "MessageNotModifiedError" not in str(e):
+                print(f"Edit error: {str(e)}")
+    
+    elif d['status'] == 'error':
+        try:
+            await message.edit(f'❌ Download error: {d.get("error", "Unknown error")}')
+        except Exception as e:
+            if "MessageNotModifiedError" not in str(e):
+                print(f"Edit error: {str(e)}")
 
 async def download_and_process_video(client, event, url):
     """Download and process a Dailymotion video."""
