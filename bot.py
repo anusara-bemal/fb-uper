@@ -51,19 +51,27 @@ def check_ffmpeg():
 def create_watermark_image(output_path, text="zoco_lk"):
     """Create a simple transparent image with text."""
     try:
-        # Create an even smaller transparent image (further reduced size)
-        img = Image.new('RGBA', (80, 25), color=(255, 255, 255, 0))
+        # Create a transparent image with fixed size
+        img = Image.new('RGBA', (150, 40), color=(255, 255, 255, 0))
         d = ImageDraw.Draw(img)
         
-        # Try to create a font with smaller size
+        # Try to create a font with larger size for better visibility
         try:
-            font = ImageFont.truetype("arial.ttf", 14)
+            font = ImageFont.truetype("arial.ttf", 24)
         except:
             font = None  # Will use default font if Arial not available
         
-        # Add text with better visibility and center it properly
-        # White text with semi-transparency
-        d.text((8, 5), text, font=font, fill=(255, 255, 255, 200))
+        # Get text size to center it
+        text_bbox = d.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        
+        # Calculate center position
+        x = (img.width - text_width) // 2
+        y = (img.height - text_height) // 2
+        
+        # Add text with medium transparency (alpha=80)
+        d.text((x, y), text, font=font, fill=(255, 255, 255, 80))
         
         # Save the image
         img.save(output_path, 'PNG')
@@ -73,11 +81,10 @@ def create_watermark_image(output_path, text="zoco_lk"):
         return False
 
 def add_watermark_to_video(input_video, output_video, watermark_image):
-    """Add watermark image to video that scrolls upward using FFmpeg."""
+    """Add watermark image to video using FFmpeg."""
     try:
-        # Overlay with animated position making the watermark scroll up
-        # Position back to the right side (main_w-overlay_w-20)
-        cmd = f'ffmpeg -y -i "{input_video}" -i "{watermark_image}" -filter_complex "[0:v][1:v] overlay=main_w-overlay_w-20:main_h-overlay_h-10-mod(t*30\,main_h+overlay_h+50):enable=\'between(t,0,999999)\'" -c:v libx264 -preset ultrafast -c:a copy "{output_video}"'
+        # Direct FFmpeg command with fixed center position and transparency
+        cmd = f'ffmpeg -y -i "{input_video}" -i "{watermark_image}" -filter_complex "[1:v]format=rgba,colorchannelmixer=aa=0.3[watermark];[0:v][watermark]overlay=x=(W-w)/2:y=(H-h)/2" -c:v libx264 -preset ultrafast -c:a copy "{output_video}"'
         
         print("Running FFmpeg command:", cmd)
         
@@ -191,7 +198,7 @@ async def split_and_send_large_video(message, video_path, caption, status_messag
         
         try:
             # Use FFmpeg to create a compressed version
-            compress_cmd = f'ffmpeg -y -i "{video_path}" -c:v libx264 -preset ultrafast -crf 28 -c:a aac -b:a 64k "{compressed_path}"'
+            compress_cmd = f'ffmpeg -y -i "{video_path}" -c:v libx264 -preset ultrafast -crf 18 -c:a aac -b:a 128k "{compressed_path}"'
             print(f"Running compression: {compress_cmd}")
             process = subprocess.Popen(compress_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = process.communicate()

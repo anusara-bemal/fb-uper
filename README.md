@@ -1,56 +1,57 @@
-# Dailymotion Video Downloader UserBot
+# Dailymotion Video Downloader Bot
 
-A Telegram UserBot that automatically downloads Dailymotion videos, adds a watermark, and sends them back to the user. It can handle videos up to 2GB, making it superior to regular bots that have a 50MB limit.
+A Telegram userbot that downloads videos from Dailymotion and sends them with a watermark.
 
-## Deployable to Coolify
-
-This application is configured to be easily deployed on Coolify, a self-hosted PaaS platform.
+## Features
+- Downloads Dailymotion videos
+- Adds a watermark to videos
+- Supports video quality up to 720p
+- Shows download and upload progress
+- Optional logging to a channel
 
 ## Setup Instructions
 
-### 1. Local Setup for Session String Generation
+### 1. Get Telegram API Credentials
+1. Go to https://my.telegram.org/
+2. Log in with your phone number
+3. Click on 'API Development Tools'
+4. Create a new application
+5. Copy the `api_id` and `api_hash`
 
-Before deploying to Coolify, you need to generate a session string locally:
-
+### 2. Generate Session String
 1. Clone this repository
-2. Install dependencies: `pip install -r requirements.txt`
-3. Create a `.env` file using `.env.example` as a template
-4. Fill in your Telegram API credentials and phone number
-5. Set `GENERATE_SESSION=yes` in your `.env` file
-6. Run `python userbot.py`
-7. Enter the verification code sent to your Telegram
-8. Copy the session string that is displayed
+2. Copy `.env.example` to `.env`
+3. Add your `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, and `TELEGRAM_PHONE` to `.env`
+4. Set `GENERATE_SESSION=yes` in `.env`
+5. Run `python userbot.py`
+6. Enter the code sent to your Telegram
+7. Copy the session string that is generated
 
-### 2. Coolify Deployment
-
-1. Create a new application in Coolify
-2. Select "Deploy from Git repository" and provide your repo URL
-3. Set the following environment variables:
-
-```
-TELEGRAM_API_ID=your_api_id
-TELEGRAM_API_HASH=your_api_hash
-TELEGRAM_SESSION_STRING=your_session_string_from_step_1
-LOG_CHANNEL_ID=your_log_channel_id (optional)
-```
-
-4. Deploy the application
-
-## Features
-
-- Downloads and processes Dailymotion videos
-- Adds a watermark with your brand/username
-- Supports videos up to 2GB in size
-- Can forward video copies to a log channel
-- Works with links from dailymotion.com and dai.ly
+### 3. Deploy to Coolify
+1. Create a new service in Coolify
+2. Select 'Docker' as deployment type
+3. Add your repository
+4. Add the following environment variables:
+   - `TELEGRAM_API_ID`
+   - `TELEGRAM_API_HASH`
+   - `TELEGRAM_SESSION_STRING` (from step 2)
+   - `LOG_CHANNEL_ID` (optional)
+5. Deploy the service
 
 ## Usage
+1. Start a chat with your account
+2. Send a Dailymotion video link
+3. Wait for the bot to process and send the video
+4. The video will be sent with a watermark
 
-Once deployed, you can:
+## Commands
+- `/start` - Shows welcome message
+- `/help` - Shows help information
 
-1. Send a Dailymotion video link to your UserBot
-2. The bot will download the video, add a watermark, and send it back
-3. All temporary files are automatically cleaned up
+## Notes
+- Videos are limited to 2GB (Telegram's limit)
+- The bot adds a "zoco_lk" watermark to all videos
+- FFmpeg is required for watermark functionality
 
 ## Environment Variables
 

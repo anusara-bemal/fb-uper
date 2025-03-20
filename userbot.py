@@ -57,19 +57,27 @@ def check_ffmpeg():
 def create_watermark_image(output_path, text="zoco_lk"):
     """Create a simple transparent image with text."""
     try:
-        # Create a transparent image
-        img = Image.new('RGBA', (80, 25), color=(255, 255, 255, 0))
+        # Create a transparent image with larger size
+        img = Image.new('RGBA', (200, 60), color=(255, 255, 255, 0))  # Increased size
         d = ImageDraw.Draw(img)
         
-        # Try to create a font with smaller size
+        # Try to create a font with larger size
         try:
-            font = ImageFont.truetype("arial.ttf", 14)
+            font = ImageFont.truetype("arial.ttf", 36)  # Increased font size
         except:
-            font = None  # Will use default font if Arial not available
+            font = None
         
-        # Add text with better visibility and center it properly
-        # White text with semi-transparency
-        d.text((8, 5), text, font=font, fill=(255, 255, 255, 200))
+        # Get text size to center it
+        text_bbox = d.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        
+        # Calculate center position
+        x = (img.width - text_width) // 2
+        y = (img.height - text_height) // 2
+        
+        # Add text with more transparency (70% opacity)
+        d.text((x, y), text, font=font, fill=(255, 255, 255, 178))  # 178 is 70% of 255
         
         # Save the image
         img.save(output_path, 'PNG')
@@ -79,10 +87,10 @@ def create_watermark_image(output_path, text="zoco_lk"):
         return False
 
 def add_watermark_to_video(input_video, output_video, watermark_image):
-    """Add watermark image to video that scrolls upward using FFmpeg."""
+    """Add watermark image to video using FFmpeg."""
     try:
-        # Restore scrolling watermark but keep optimized encoding settings
-        cmd = f'ffmpeg -y -i "{input_video}" -i "{watermark_image}" -filter_complex "[0:v][1:v] overlay=main_w-overlay_w-10:main_h-overlay_h-10-mod(t*8\,main_h+overlay_h):enable=\'between(t,0,999999)\'" -c:v libx264 -preset veryfast -crf 30 -c:a aac -b:a 128k "{output_video}"'
+        # Position watermark in center with higher quality settings and more transparency
+        cmd = f'ffmpeg -y -i "{input_video}" -i "{watermark_image}" -filter_complex "[1:v]format=rgba,colorchannelmixer=aa=0.7[watermark];[0:v][watermark]overlay=x=(W-w)/2:y=(H-h)/2" -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 128k "{output_video}"'
         
         print("Running FFmpeg command:", cmd)
         
@@ -211,7 +219,7 @@ async def download_and_process_video(client, event, url):
 
         # Set download options with optimized settings
         ydl_opts = {
-            'format': 'best[height<=480]/bestvideo[height<=480]+bestaudio/best',  # Limit to 480p for much faster upload
+            'format': 'best[height<=720]/bestvideo[height<=720]+bestaudio/best',  # Increased to 720p
             'outtmpl': temp_video_path,
             'socket_timeout': 30,
             'http_headers': {
