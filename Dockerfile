@@ -26,4 +26,4 @@ RUN useradd -m appuser
 USER appuser
 
 # Command to run the application
-CMD ["python", "userbot.py"] 
+CMD ["python", "youtube_to_facebook_new.py"] 
