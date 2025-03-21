@@ -21,6 +21,9 @@ COPY . .
 # Create downloads directory with proper permissions
 RUN mkdir -p /app/downloads && chmod 777 /app/downloads
 
+# Create log file with proper permissions
+RUN touch /app/bot.log && chmod 666 /app/bot.log
+
 # Run as non-root user for security
 RUN useradd -m appuser
 USER appuser
