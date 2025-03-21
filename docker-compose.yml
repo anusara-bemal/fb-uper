@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  youtube-to-facebook:
+    build: .
+    container_name: youtube-to-facebook-bot
+    restart: unless-stopped
+    volumes:
+      - ./downloads:/app/downloads
+      - ./youtube_cookies.txt:/app/youtube_cookies.txt
+      - ./videos.txt:/app/videos.txt
+      - ./bot.log:/app/bot.log
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - FACEBOOK_PAGE_ACCESS_TOKEN=${FACEBOOK_PAGE_ACCESS_TOKEN}
+      - FACEBOOK_PAGE_ID=${FACEBOOK_PAGE_ID}
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/app/youtube_to_facebook_new.py') else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
