@@ -1,7 +1,7 @@
 import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 import yt_dlp
 import facebook
 from dotenv import load_dotenv
@@ -12,6 +12,8 @@ import requests
 from datetime import datetime, timedelta
 import random
 import threading
+import json
+import pickle
 
 # Set up logging
 logging.basicConfig(
@@ -48,9 +50,8 @@ class YouTubeToFacebookBot:
         self.facebook_token = os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN')
         self.facebook_page_id = os.getenv('FACEBOOK_PAGE_ID')
         self.download_path = 'downloads'
-        
-        # Test cookies at startup
-        self.test_cookies()
+        self.cookies_file = 'youtube_cookies.txt'
+        self.session_file = 'yt_session.pickle'
         
         # Configure wait time (default 1 hour, can be changed with /setwait command)
         self.wait_time = 3600  # 1 hour in seconds
@@ -65,27 +66,6 @@ class YouTubeToFacebookBot:
         # Track current status message and wait message
         self.status_message = None
         self.wait_message = None
-
-    def test_cookies(self):
-        """Test if cookies are working properly"""
-        try:
-            test_url = "https://www.youtube.com/watch?v=GiUvAzzetd0"
-            test_opts = {
-                'quiet': True,
-                'format': 'best',
-                'cookiefile': 'cookies.txt',
-                'skip_download': True,
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-            }
-            
-            with yt_dlp.YoutubeDL(test_opts) as ydl:
-                info = ydl.extract_info(test_url, download=False)
-                if info:
-                    logger.info("✅ Cookies are working properly")
-                else:
-                    logger.error("❌ Cookies test failed - could not extract video info")
-        except Exception as e:
-            logger.error(f"❌ Cookies test failed with error: {str(e)}")
 
     def extract_youtube_url(self, line):
         """Extract YouTube URL from a line"""
@@ -103,24 +83,12 @@ class YouTubeToFacebookBot:
             return match.group(1)
         return None
 
-    def get_random_proxy(self):
-        """Get a random proxy from the proxy list file"""
-        try:
-            with open('proxy_list.txt', 'r') as f:
-                proxies = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-            
-            if proxies:
-                return random.choice(proxies)
-        except Exception as e:
-            logger.error(f"Error loading proxy: {str(e)}")
-        
-        return None
-            
     async def download_youtube_video(self, url, update: Update):
-        """Download a YouTube video using yt-dlp without progress updates"""
+        """Download a YouTube video using yt-dlp with cookies support"""
         try:
-            # Try to get a proxy
-            proxy = self.get_random_proxy()
+            # Check if we have saved cookies
+            cookies_exists = os.path.isfile(self.cookies_file)
+            session_exists = os.path.isfile(self.session_file)
             
             ydl_opts = {
                 'format': 'best',
@@ -129,61 +97,78 @@ class YouTubeToFacebookBot:
                 'writeinfojson': True,
                 'writedescription': True,
                 'writethumbnail': True,
-                'geo_bypass': True,  # Try to bypass geographic restrictions
-                'geo_bypass_country': 'US',  # Use US as the geo bypass country
-                'cookiefile': 'cookies.txt',  # Use cookies file for authentication
+                'geo_bypass': True,
+                'geo_bypass_country': 'US',
                 'nocheckcertificate': True,
-                'ignoreerrors': True,
-                'no_warnings': True,
-                'extractor_retries': 5,
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate'
-                }
+                'ignoreerrors': True
             }
             
-            # Add proxy if available
-            if proxy:
-                logger.info(f"Using proxy: {proxy}")
-                ydl_opts['proxy'] = proxy
+            # Add cookies file if it exists
+            if cookies_exists:
+                ydl_opts['cookiefile'] = self.cookies_file
+            
+            # Load session if exists
+            session = None
+            if session_exists:
+                try:
+                    with open(self.session_file, 'rb') as f:
+                        session = pickle.load(f)
+                        logger.info("Loaded existing YouTube session")
+                except Exception as e:
+                    logger.error(f"Error loading session: {str(e)}")
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Get video info first
-                info = ydl.extract_info(url, download=False)
-                video_title = info['title']
-                duration = info.get('duration', 0)
-                channel = info.get('channel', 'Unknown')
-                upload_date = info.get('upload_date', '')
-                view_count = info.get('view_count', 0)
-                like_count = info.get('like_count', 0)
-                description = info.get('description', '')[:100] + '...' if info.get('description') else ''
-                thumbnail = info.get('thumbnail', '')
-                
-                logger.info(f"Downloading: {video_title}")
-                
-                # Download the video
-                ydl.download([url])
-                
-                # Get the downloaded file path
-                video_path = os.path.join(self.download_path, f"{video_title}.{info['ext']}")
-                logger.info(f"Download completed: {video_path}")
-                
-                video_data = {
-                    'path': video_path,
-                    'title': video_title,
-                    'duration': duration,
-                    'channel': channel,
-                    'upload_date': upload_date,
-                    'views': view_count,
-                    'likes': like_count,
-                    'description': description,
-                    'thumbnail': thumbnail
-                }
-                
-                return video_data
+                # Try to get video info first
+                try:
+                    info = ydl.extract_info(url, download=False)
+                    
+                    # If successful, proceed with download
+                    video_title = info['title']
+                    duration = info.get('duration', 0)
+                    channel = info.get('channel', 'Unknown')
+                    upload_date = info.get('upload_date', '')
+                    view_count = info.get('view_count', 0)
+                    like_count = info.get('like_count', 0)
+                    description = info.get('description', '')[:100] + '...' if info.get('description') else ''
+                    thumbnail = info.get('thumbnail', '')
+                    
+                    logger.info(f"Downloading: {video_title}")
+                    
+                    # Download the video
+                    ydl.download([url])
+                    
+                    # Get the downloaded file path
+                    video_path = os.path.join(self.download_path, f"{video_title}.{info['ext']}")
+                    logger.info(f"Download completed: {video_path}")
+                    
+                    video_data = {
+                        'path': video_path,
+                        'title': video_title,
+                        'duration': duration,
+                        'channel': channel,
+                        'upload_date': upload_date,
+                        'views': view_count,
+                        'likes': like_count,
+                        'description': description,
+                        'thumbnail': thumbnail
+                    }
+                    
+                    return video_data
+                    
+                except Exception as e:
+                    error_str = str(e)
+                    logger.error(f"Error during info extraction: {error_str}")
+                    
+                    # Check if the error is related to sign-in requirements
+                    if "Sign in to confirm you're not a bot" in error_str:
+                        await update.message.reply_text(
+                            f"⚠️ <b>Authentication Required!</b>\n\n"
+                            f"YouTube is asking to verify you're not a bot. "
+                            f"Please use /setcookies command to provide your YouTube cookies.",
+                            parse_mode='HTML'
+                        )
+                    
+                    raise
         
         except Exception as e:
             logger.error(f"Error downloading video: {str(e)}")
@@ -660,8 +645,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• /resume - Resume a paused upload process\n"
         f"• /skip - Skip the current waiting period\n"
         f"• /help - Show detailed help information\n"
-        f"• /setwait - Set the wait time between videos\n\n"
-        f"<i>Make sure you have added YouTube links in the videos.txt file.</i>",
+        f"• /setwait - Set the wait time between videos\n"
+        f"• /setcookies - Set YouTube cookies for authentication\n"
+        f"• /upload_cookies - Upload a cookies file\n\n"
+        f"<i>Make sure you have added YouTube links in the videos.txt file.</i>\n\n"
+        f"<b>🔐 YouTube Authentication:</b>\n"
+        f"YouTube sometimes requires authentication to verify you're not a bot.\n"
+        f"If you encounter a download error, use /upload_cookies to provide your browser cookies.",
         parse_mode='HTML',
         reply_markup=reply_markup
     )
@@ -691,11 +681,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• /resume - Resume a paused upload process\n"
         f"• /skip - Skip the current waiting period\n"
         f"• /help - Show this help message\n"
-        f"• /setwait - Set the wait time between videos\n\n"
+        f"• /setwait - Set the wait time between videos\n"
+        f"• /setcookies - Set YouTube cookies for authentication\n"
+        f"• /upload_cookies - Upload a cookies file\n\n"
+        f"<b>🔐 YouTube Authentication:</b>\n"
+        f"If you see the 'Sign in to confirm you're not a bot' error:\n"
+        f"1. Log in to YouTube in your web browser\n"
+        f"2. Install a browser extension like 'Get cookies.txt' or 'EditThisCookie'\n"
+        f"3. Export cookies for youtube.com domain\n"
+        f"4. Use /upload_cookies command and send the cookies file\n"
+        f"5. Your YouTube session will be saved for future downloads\n\n"
         f"<b>Tips:</b>\n"
         f"• You can add a custom title before the YouTube URL\n"
         f"• Videos are processed from bottom to top of the file\n"
-        f"• There's a {self.wait_time}-second wait between uploads to avoid rate limits\n"
+        f"• There's a {bot_instance.wait_time}-second wait between uploads to avoid rate limits\n"
         f"• All actions are logged in 'bot.log' for troubleshooting\n\n"
         f"<i>If you encounter any issues, check the log file for details.</i>",
         parse_mode='HTML',
@@ -813,6 +812,103 @@ async def setwait_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
 
+async def set_cookies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /setcookies command to save YouTube cookies"""
+    # Check if there are any arguments
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text(
+            f"⚠️ <b>Please provide a cookies file path or content.</b>\n\n"
+            f"<b>To use:</b>\n"
+            f"1. You can upload your cookies.txt file using /upload_cookies\n"
+            f"2. Or send the raw cookie data with /setcookies [data]\n\n"
+            f"<i>To get cookies from your browser:</i>\n"
+            f"- Install a cookies manager extension\n"
+            f"- Log in to YouTube in your browser\n"
+            f"- Export cookies for youtube.com to a .txt file\n"
+            f"- Use that file with this command</i>",
+            parse_mode='HTML'
+        )
+        return
+    
+    try:
+        # Join all args to handle spaces in the cookie data
+        cookie_data = ' '.join(context.args)
+        
+        # Write the cookies to a file
+        with open(bot_instance.cookies_file, 'w', encoding='utf-8') as f:
+            f.write(cookie_data)
+        
+        await update.message.reply_text(
+            f"🍪 <b>Cookies saved successfully!</b>\n\n"
+            f"YouTube session is now authenticated. Try downloading videos again.",
+            parse_mode='HTML'
+        )
+        
+        # Log the action
+        logger.info(f"Cookies saved by user {update.effective_user.username or update.effective_user.id}")
+    
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ <b>Error saving cookies:</b> {str(e)}",
+            parse_mode='HTML'
+        )
+
+async def upload_cookies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /upload_cookies command to upload a cookies file"""
+    await update.message.reply_text(
+        f"📤 <b>Please send your cookies.txt file.</b>\n\n"
+        f"Reply to this message with the file attachment.",
+        parse_mode='HTML'
+    )
+
+async def file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming file uploads for cookies"""
+    # Check if this is a cookie file
+    if update.message.document and (
+            update.message.document.file_name.endswith('.txt') or 
+            update.message.document.mime_type == 'text/plain'):
+        
+        try:
+            # Download the file
+            file = await update.message.document.get_file()
+            cookie_file_path = f"temp_{update.message.document.file_name}"
+            await file.download_to_drive(cookie_file_path)
+            
+            # Read the file content
+            with open(cookie_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                cookie_content = f.read()
+            
+            # Check if it seems like a cookie file
+            if 'domain' in cookie_content.lower() and '.youtube.com' in cookie_content.lower():
+                # Save to the bot's cookie file
+                with open(bot_instance.cookies_file, 'w', encoding='utf-8') as f:
+                    f.write(cookie_content)
+                
+                await update.message.reply_text(
+                    f"🍪 <b>Cookie file uploaded and saved successfully!</b>\n\n"
+                    f"YouTube session is now authenticated. Try downloading videos again.",
+                    parse_mode='HTML'
+                )
+                
+                # Log the action
+                logger.info(f"Cookie file uploaded by user {update.effective_user.username or update.effective_user.id}")
+            else:
+                await update.message.reply_text(
+                    f"⚠️ <b>The uploaded file doesn't appear to be a valid YouTube cookies file.</b>\n\n"
+                    f"Please ensure you're exporting cookies from YouTube domain.",
+                    parse_mode='HTML'
+                )
+            
+            # Clean up temp file
+            if os.path.exists(cookie_file_path):
+                os.remove(cookie_file_path)
+        
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ <b>Error processing cookie file:</b> {str(e)}",
+                parse_mode='HTML'
+            )
+
 def main():
     # Create the Application
     app = ApplicationBuilder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
@@ -825,11 +921,16 @@ def main():
     app.add_handler(CommandHandler('resume', resume_command))
     app.add_handler(CommandHandler('skip', skip_command))
     app.add_handler(CommandHandler('setwait', setwait_command))
+    app.add_handler(CommandHandler('setcookies', set_cookies_command))
+    app.add_handler(CommandHandler('upload_cookies', upload_cookies_command))
     
     # Add callback handler for inline buttons
     app.add_handler(CallbackQueryHandler(callback_start, pattern="start"))
     app.add_handler(CallbackQueryHandler(help_command, pattern="help"))
     app.add_handler(CallbackQueryHandler(handle_callback))
+    
+    # Add message handler for file uploads
+    app.add_handler(MessageHandler(filters.Document.ALL, file_handler))
 
     # Start the bot
     print("Bot is running...")
