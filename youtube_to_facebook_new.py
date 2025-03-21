@@ -49,6 +49,9 @@ class YouTubeToFacebookBot:
         self.facebook_page_id = os.getenv('FACEBOOK_PAGE_ID')
         self.download_path = 'downloads'
         
+        # Test cookies at startup
+        self.test_cookies()
+        
         # Configure wait time (default 1 hour, can be changed with /setwait command)
         self.wait_time = 3600  # 1 hour in seconds
         
@@ -62,6 +65,27 @@ class YouTubeToFacebookBot:
         # Track current status message and wait message
         self.status_message = None
         self.wait_message = None
+
+    def test_cookies(self):
+        """Test if cookies are working properly"""
+        try:
+            test_url = "https://www.youtube.com/watch?v=GiUvAzzetd0"
+            test_opts = {
+                'quiet': True,
+                'format': 'best',
+                'cookiefile': 'cookies.txt',
+                'skip_download': True,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            }
+            
+            with yt_dlp.YoutubeDL(test_opts) as ydl:
+                info = ydl.extract_info(test_url, download=False)
+                if info:
+                    logger.info("✅ Cookies are working properly")
+                else:
+                    logger.error("❌ Cookies test failed - could not extract video info")
+        except Exception as e:
+            logger.error(f"❌ Cookies test failed with error: {str(e)}")
 
     def extract_youtube_url(self, line):
         """Extract YouTube URL from a line"""
@@ -79,9 +103,25 @@ class YouTubeToFacebookBot:
             return match.group(1)
         return None
 
+    def get_random_proxy(self):
+        """Get a random proxy from the proxy list file"""
+        try:
+            with open('proxy_list.txt', 'r') as f:
+                proxies = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            
+            if proxies:
+                return random.choice(proxies)
+        except Exception as e:
+            logger.error(f"Error loading proxy: {str(e)}")
+        
+        return None
+            
     async def download_youtube_video(self, url, update: Update):
         """Download a YouTube video using yt-dlp without progress updates"""
         try:
+            # Try to get a proxy
+            proxy = self.get_random_proxy()
+            
             ydl_opts = {
                 'format': 'best',
                 'outtmpl': os.path.join(self.download_path, '%(title)s.%(ext)s'),
@@ -90,8 +130,25 @@ class YouTubeToFacebookBot:
                 'writedescription': True,
                 'writethumbnail': True,
                 'geo_bypass': True,  # Try to bypass geographic restrictions
-                'geo_bypass_country': 'US'  # Use US as the geo bypass country
+                'geo_bypass_country': 'US',  # Use US as the geo bypass country
+                'cookiefile': 'cookies.txt',  # Use cookies file for authentication
+                'nocheckcertificate': True,
+                'ignoreerrors': True,
+                'no_warnings': True,
+                'extractor_retries': 5,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate'
+                }
             }
+            
+            # Add proxy if available
+            if proxy:
+                logger.info(f"Using proxy: {proxy}")
+                ydl_opts['proxy'] = proxy
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 # Get video info first
