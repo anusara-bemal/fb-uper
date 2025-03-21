@@ -92,7 +92,7 @@ class YouTubeToFacebookBot:
             
             ydl_opts = {
                 'format': 'best',
-                'outtmpl': os.path.join(self.download_path, '%(title)s.%(ext)s'),
+                'outtmpl': os.path.join(self.download_path, '%(id)s.%(ext)s'),
                 'quiet': True,
                 'writeinfojson': True,
                 'writedescription': True,
@@ -124,6 +124,7 @@ class YouTubeToFacebookBot:
                     
                     # If successful, proceed with download
                     video_title = info['title']
+                    video_id = info['id']
                     duration = info.get('duration', 0)
                     channel = info.get('channel', 'Unknown')
                     upload_date = info.get('upload_date', '')
@@ -132,13 +133,14 @@ class YouTubeToFacebookBot:
                     description = info.get('description', '')[:100] + '...' if info.get('description') else ''
                     thumbnail = info.get('thumbnail', '')
                     
-                    logger.info(f"Downloading: {video_title}")
+                    logger.info(f"Downloading: {video_title} (ID: {video_id})")
                     
                     # Download the video
                     ydl.download([url])
                     
-                    # Get the downloaded file path
-                    video_path = os.path.join(self.download_path, f"{video_title}.{info['ext']}")
+                    # Get the downloaded file path using video ID instead of title
+                    video_ext = info.get('ext', 'mp4')
+                    video_path = os.path.join(self.download_path, f"{video_id}.{video_ext}")
                     logger.info(f"Download completed: {video_path}")
                     
                     video_data = {
